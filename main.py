@@ -1,56 +1,65 @@
-import cv2
 import os
-import easyocr
+import cv2
+import torch
 import numpy as np
 from ultralytics import YOLO
+import easyocr
+os.makedirs('C:/Users/dbyko/Desktop/CVproject/Result', exist_ok=True)
+OUTPUT_VIDEO_PATH = os.path.join('C:/Users/dbyko/Desktop/CVproject/Result', 'proce_video3.avi')
+model = YOLO('carplate_model/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')
+reader = easyocr.Reader(['ru'], gpu=torch.cuda.is_available())
+cap = cv2.VideoCapture('videos/sample_short3.mp4')
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+video_out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc, 24, (1920, 1080))
 
-model = YOLO('carplate_model/weights/best.pt')
 
-l = os.listdir('plates/')
+frame_count = 0
+score_all = []
 
-score_all = [] #Список всех значений уверенности
-score_b5 = [] #Список всех уверенностей >0.5
 
-#перебираем изображения из папки
-for i in l:
-    img = cv2.imread(f'plates/{i}')
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-    #Подрубаем модель и получаем координаты боксов
-    results = model(img)[0]
+    results = model(frame)[0]
     boxes = results.boxes.xyxy.cpu().numpy().astype(np.int32)
 
-    #Вырезаем номера по координатам
-    for x, y, w, h in boxes:
-        carplate_img = img[y:h, x:w]
-        carplate_img_gray = cv2.cvtColor(carplate_img, cv2.COLOR_BGR2GRAY)
+    for x1, y1, x2, y2 in boxes:
+        plate_img = frame[y1:y2, x1:x2]
+        plate_gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
 
-        #Считываем номера
-        reader = easyocr.Reader(['ru'], gpu = False)
-        data = reader.readtext(carplate_img_gray, allowlist='АВEКМНОРСТУХ0123456789',
-                                       contrast_ths=8, adjust_contrast=0.85, add_margin=0.015, width_ths=20,
-                                       decoder='beamsearch', text_threshold=0.1, batch_size=8, beamWidth=32)
-        text_full = ''
-        for l in data:
-            bbox, text, score = l
+        result = reader.readtext(
+            plate_gray,
+            allowlist='АВЕКМНОРСТУХ0123456789',
+            contrast_ths=8,
+            adjust_contrast=0.85,
+            add_margin=0.015,
+            width_ths=20,
+            decoder='beamsearch',
+            text_threshold=0.1,
+            batch_size=8,
+            beamWidth=32
+        )
+
+        plate_text = ''
+        for _, text, score in result:
             score_all.append(score)
-            if score > 0.5:
-                score_b5.append(score)
-                text_full += text
-                text_full = text_full.upper().replace(' ', '')
-            print(score)
-        print(text_full)
+            if score > 0.7:
+                plate_text += text.upper().replace(' ', '')
 
-        #Отрисовываем всю инфу на изображении
-        # final_img = cv2.putText(img, text_full, (x, y - 150), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), thickness=2)
-        # final_img = cv2.rectangle(img, (x, y), (w, h), (0, 255, 0), 2)
-        # final_img = cv2.resize(final_img, (final_img.shape[1] // 2, final_img.shape[0] // 2))
+        frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        frame = cv2.putText(frame, plate_text, (x1, y1 + (y1-y2)), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
 
-        # cv2.imshow('result', carplate_img)
-        # cv2.waitKey(0)
+    video_out.write(frame)
+    frame_count += 1
+    print(frame_count)
 
-
-#Средние значения уверенности
 average_score_all = sum(score_all) / len(score_all)
-average_score_b5 = sum(score_b5) / len(score_b5)
-print('Средний score:', average_score_all)
-print('Средний score>0.5:',average_score_b5)
+print('Средний text_score:', average_score_all)
+
+cap.release()
+video_out.release()
+cv2.destroyAllWindows()
+print(f'Обработано {frame_count} кадров')
+print(f'Видео Cохранено в: {OUTPUT_VIDEO_PATH}')
