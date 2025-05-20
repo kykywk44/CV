@@ -4,32 +4,48 @@ import torch
 import numpy as np
 from ultralytics import YOLO
 import easyocr
-os.makedirs('C:/Users/dbyko/Desktop/CVproject/Result', exist_ok=True)
-OUTPUT_VIDEO_PATH = os.path.join('C:/Users/dbyko/Desktop/CVproject/Result', 'proce_video3.avi')
-model = YOLO('carplate_model/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')
+import textsort
+
+os.makedirs('CV/Result', exist_ok=True)
+OUTPUT_VIDEO_PATH = os.path.join('C:/Users/dbyko/Desktop/CVproject/Result', 'proce_video1.avi')
+
+model_plate = YOLO('carplate_model/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')
+model_chars = YOLO('carpIate_modeI2/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')  # Модель для символов
 reader = easyocr.Reader(['ru'], gpu=torch.cuda.is_available())
+
 cap = cv2.VideoCapture('videos/sample_short3.mp4')
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 video_out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc, 24, (1920, 1080))
 
-
 frame_count = 0
-score_all = []
-
 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
 
-    results = model(frame)[0]
-    boxes = results.boxes.xyxy.cpu().numpy().astype(np.int32)
+    plate_results = model_plate(frame)[0]
+    boxes = plate_results.boxes.xyxy.cpu().numpy().astype(np.int32)
 
     for x1, y1, x2, y2 in boxes:
-        plate_img = frame[y1:y2, x1:x2]
-        plate_gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+        plate_roi = frame[y1:y2, x1:x2]
 
-        result = reader.readtext(
+        char_results = model_chars(plate_roi)[0]
+        char_boxes = char_results.boxes.xyxy.cpu().numpy().astype(np.int32)
+        char_confidences = char_results.boxes.conf.cpu().numpy()
+        char_classes = char_results.boxes.cls.cpu().numpy().astype(int)
+
+        chars = []
+        for (cx1, cy1, cx2, cy2), conf, cls_id in zip(char_boxes, char_confidences, char_classes):
+            if conf > 0.5:
+                char = model_chars.names[cls_id]
+                chars.append((cx1, char))
+
+        chars.sort(key=lambda x: x[0])
+        plate_text = ''.join([char[1] for char in chars])
+
+        plate_gray = cv2.cvtColor(plate_roi, cv2.COLOR_BGR2GRAY)
+        ocr_result = reader.readtext(
             plate_gray,
             allowlist='АВЕКМНОРСТУХ0123456789',
             contrast_ths=8,
@@ -42,24 +58,20 @@ while cap.isOpened():
             beamWidth=32
         )
 
-        plate_text = ''
-        for _, text, score in result:
-            score_all.append(score)
-            if score > 0.7:
-                plate_text += text.upper().replace(' ', '')
+        final_text = plate_text if len(plate_text) > 0 else ''.join([res[1] for res in ocr_result])
+        final_text = textsort.text_filter(final_text)
 
         frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        frame = cv2.putText(frame, plate_text, (x1, y1 + (y1-y2)), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 255, 0), 2)
+        frame = cv2.putText(frame, final_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        print(f'Обнаруженный текст:{final_text}')
 
     video_out.write(frame)
     frame_count += 1
-    print(frame_count)
-
-average_score_all = sum(score_all) / len(score_all)
-print('Средний text_score:', average_score_all)
+    print(f'Обработан кадр: {frame_count}')
 
 cap.release()
 video_out.release()
 cv2.destroyAllWindows()
-print(f'Обработано {frame_count} кадров')
-print(f'Видео Cохранено в: {OUTPUT_VIDEO_PATH}')
+
+print(f'Обработано кадров: {frame_count}')
+print(f'Видео сохранено: {OUTPUT_VIDEO_PATH}')
