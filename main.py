@@ -59,10 +59,10 @@ while cap.isOpened():
         )
 
         final_text = plate_text if len(plate_text) > 0 else ''.join([res[1] for res in ocr_result])
-        final_text = textsort.text_filter(final_text)
 
         frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         frame = cv2.putText(frame, final_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        final_text = textsort.text_filter(final_text)
         print(f'Обнаруженный текст:{final_text}')
 
     video_out.write(frame)
