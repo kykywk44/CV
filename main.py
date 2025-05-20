@@ -7,7 +7,7 @@ import easyocr
 import textsort
 
 os.makedirs('CV/Result', exist_ok=True)
-OUTPUT_VIDEO_PATH = os.path.join('C:/Users/dbyko/Desktop/CVproject/Result', 'proce_video1.avi')
+OUTPUT_VIDEO_PATH = os.path.join('Result', 'proce_video1.avi')
 
 model_plate = YOLO('carplate_model/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')
 model_chars = YOLO('carpIate_modeI2/weights/best.pt').to('cuda' if torch.cuda.is_available() else 'cpu')  # Модель для символов
@@ -45,6 +45,7 @@ while cap.isOpened():
         plate_text = ''.join([char[1] for char in chars])
 
         plate_gray = cv2.cvtColor(plate_roi, cv2.COLOR_BGR2GRAY)
+        img_filter = cv2.bilateralFilter(plate_gray, 15, 20, 20)
         ocr_result = reader.readtext(
             plate_gray,
             allowlist='АВЕКМНОРСТУХ0123456789',
